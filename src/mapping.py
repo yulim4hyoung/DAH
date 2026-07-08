@@ -106,6 +106,67 @@ PLAYBOOKS = {
 CSF_ORDER = ["respond", "recover", "protect"]
 CSF_LABEL = {"respond": "대응(Respond)", "recover": "복구(Recover)", "protect": "예방·파훼(Protect)"}
 
+# ---------------------------------------------------------------------------
+# SLA(가용성) 인지 대응 — 탐지 신뢰도에 따라 대응 강도를 조절한다.
+#   graceful  : 서비스를 유지하며 최소 개입으로 완화(오탐 시 자해 최소화)
+#   aggressive: 확실할 때만 강한 차단(가용성 희생을 감수)
+# 통합본 Part 5 대응을, 대회 SLA 채점축(시스템 가용성 유지)에 맞춰 2단계로 분화.
+# 기존 PLAYBOOKS[*]["respond"]는 aggressive 계열과 동일하게 유지(하위호환).
+# ---------------------------------------------------------------------------
+RESPONSE_TIERS = {
+    "gnss_spoofing": {
+        "graceful": [
+            "GNSS 신뢰가중치 하향 + INS 강결합 유지 → 임무 계속(비행 지속)",
+            "다중 별자리·주파수 교차검증으로 이상 위성만 배제",
+            "운용자 경보 + 항법 무결성 모니터링 강화",
+        ],
+        "aggressive": [
+            "GNSS 입력 차단 → INS 단독 추측항법(dead-reckoning) 전환",
+            "페일세이프 진입: RTL(자동 귀환) 또는 Loiter(공중 대기)",
+            "다중 별자리/주파수로 재획득 시도(GPS+Galileo+KPS)",
+        ],
+    },
+    "gnss_jamming": {
+        "graceful": [
+            "주파수 hopping으로 재밍 대역 회피하며 임무 계속",
+            "백업 링크로 점진 전환 + INS 융합 유지",
+        ],
+        "aggressive": [
+            "재밍 대역 회피(주파수 hopping)·백업 링크 전환",
+            "INS 단독 항법 + 페일세이프(RTL/Loiter)",
+        ],
+    },
+    "satcom_wiper": {
+        "graceful": [
+            "의심 관리명령 홀드(승인 대기 큐 격리) + 정상 트래픽 유지",
+            "펌웨어 푸시만 선택적 레이트리밋 → BLOS 링크 유지",
+            "관리세션 재인증 요구(MFA 챌린지)",
+        ],
+        "aggressive": [
+            "관리채널(NOC) 격리·차단 → 대량 펌웨어 푸시 중단",
+            "감염 의심 모뎀 격리",
+            "LOS RF/셀룰러로 멀티링크 절체 (BLOS 단일장애점 회피)",
+        ],
+    },
+    "can_injection": {
+        "graceful": [
+            "의심 CAN ID 필터링(구동계 유지) + 속도 상한 하향",
+            "침해 의심 세그먼트 모니터 강화 + 수동 통제 대기",
+        ],
+        "aggressive": [
+            "안전모드 진입 → 차량 정지(구동 토픽 차단)",
+            "침해 세그먼트(도메인) 격리",
+            "수동 통제로 전환",
+        ],
+    },
+}
+
+# SLA 비용 산정용 — 대응 강도별 '서비스 방해' 가중치(0=무방해, 1=완전중단).
+DISRUPTION_WEIGHT = {"none": 0.0, "graceful": 0.2, "aggressive": 1.0}
+
+# 탐지 신뢰도(0~1)가 이 값 이상이면 aggressive, 아니면 graceful.
+HIGH_CONFIDENCE = 0.7
+
 
 def threat_info(threat_key: str) -> dict:
     return THREATS.get(threat_key, THREATS["nominal"])
@@ -113,3 +174,36 @@ def threat_info(threat_key: str) -> dict:
 
 def playbook(threat_key: str) -> dict:
     return PLAYBOOKS.get(threat_key, {})
+
+
+def response_tier(threat_key: str, confidence: float | None,
+                  high_conf: float = HIGH_CONFIDENCE) -> tuple[str, list[str]]:
+    """탐지 신뢰도에 따라 (tier, respond 행동목록) 반환.
+
+    confidence None(정상/미확정) → ("none", []).
+    RESPONSE_TIERS에 없는 위협은 기존 PLAYBOOKS의 respond로 폴백(강도구분 없음).
+    """
+    tiers = RESPONSE_TIERS.get(threat_key)
+    if tiers is None:
+        base = PLAYBOOKS.get(threat_key, {}).get("respond", [])
+        return ("aggressive" if base else "none", base)
+    if confidence is None:
+        return ("none", [])
+    tier = "aggressive" if confidence >= high_conf else "graceful"
+    return (tier, tiers[tier])
+
+
+def playbook_with_tier(threat_key: str, confidence: float | None,
+                       high_conf: float = HIGH_CONFIDENCE) -> tuple[dict, str]:
+    """SLA 인지 플레이북 — respond를 신뢰도에 맞춘 tier로 교체한 dict + tier명 반환.
+
+    recover/protect는 tier와 무관(공통). 위협 없으면 ({}, "none").
+    """
+    pb = playbook(threat_key)
+    if not pb:
+        return ({}, "none")
+    tier, respond_actions = response_tier(threat_key, confidence, high_conf)
+    merged = dict(pb)
+    if respond_actions:
+        merged["respond"] = respond_actions
+    return (merged, tier)
