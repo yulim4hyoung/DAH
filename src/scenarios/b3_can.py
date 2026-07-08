@@ -31,7 +31,8 @@ def load():
     return {"model": m, "scaler": d["scaler"]}
 
 
-def attack(rng):
+def attack(rng, evasive=False):
+    # evasive: 이 시나리오는 회피형 프로파일 미지원(하위호환용 인자, 무시).
     kind = ["dos", "fuzzy", "spoof"][rng.integers(0, 3)]
     cfg = load_config()
     t, ids, dlc, atype = _stream(kind, t_end=1.2, rng=rng)
@@ -54,7 +55,9 @@ def detect(bundle, atk):
     evidence = {"미등록ID비율": round(float(1 - row[6]), 2), "단일ID점유": round(float(row[4]), 2),
                 "최소IAT(ms)": round(float(row[2]), 3), "고유ID수": int(row[3]),
                 "공격유형(예측)": CLASS_NAMES[sub]}
+    conf = float(probs[first].max())
     return {"threat": "can_injection" if detected else "nominal", "detected": detected,
-            "score": round(float(probs[first].max()), 3), "latency": None, "latency_unit": "",
+            "score": round(conf, 3), "confidence": round(conf, 3),
+            "latency": None, "latency_unit": "",
             "subtype": CLASS_NAMES[sub], "evidence": evidence, "reasons": reasons,
             "detector": "경량 MLP(윈도 특징)"}

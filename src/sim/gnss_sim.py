@@ -23,6 +23,28 @@ F = len(FEATURES)
 CLASS_NAMES = ["정상", "스푸핑", "재밍"]
 KINDS = ["nominal", "spoof", "jam"]
 
+# --- 스푸핑 공격 프로파일 (적응형/회피형 공격 실험용) ---
+# "trained": 탐지기가 학습한 기본 프로파일(=기존 하드코딩값과 동일).
+# "slow_creep": 훨씬 느리고 약한 표류 → 훈련 분포를 벗어난 회피형(탐지 난이도↑).
+# "aggressive": 빠르고 센 표류 → 탐지는 쉬우나 은밀성↓.
+SPOOF_PROFILES = {
+    "trained":    {"ramp": 25.0, "slope": 0.45, "cn0_bump": (3.5, 1.2),
+                   "agc_drop": (0.13, 0.03), "dop_target": (1.4, 0.2), "clock_rate": 0.04},
+    "slow_creep": {"ramp": 80.0, "slope": 0.07, "cn0_bump": (0.5, 0.2),
+                   "agc_drop": (0.02, 0.008), "dop_target": (2.05, 0.3), "clock_rate": 0.004},
+    "aggressive": {"ramp": 12.0, "slope": 0.9, "cn0_bump": (5.2, 1.5),
+                   "agc_drop": (0.2, 0.05), "dop_target": (1.15, 0.15), "clock_rate": 0.08},
+}
+
+
+def _resolve_profile(profile):
+    """profile: None|str|dict → 파라미터 dict. None은 'trained'(기존과 동일)."""
+    if profile is None:
+        return SPOOF_PROFILES["trained"]
+    if isinstance(profile, str):
+        return SPOOF_PROFILES[profile]
+    return profile
+
 
 def _nominal_epoch(rng) -> np.ndarray:
     return np.array([
@@ -36,8 +58,12 @@ def _nominal_epoch(rng) -> np.ndarray:
     ], dtype=np.float64)
 
 
-def generate_flight(kind: str, epochs: int, rng, window: int = 20):
-    """한 비행(에폭 시퀀스) 생성. 반환: (feat[epochs,F], labels[epochs], onset)."""
+def generate_flight(kind: str, epochs: int, rng, window: int = 20, profile=None):
+    """한 비행(에폭 시퀀스) 생성. 반환: (feat[epochs,F], labels[epochs], onset).
+
+    profile: 스푸핑 공격 프로파일(None=기존 'trained'와 동일). 적응형 공격 실험용.
+    """
+    p = _resolve_profile(profile)
     feat = np.zeros((epochs, F))
     labels = np.zeros(epochs, dtype=int)
     onset = -1
@@ -51,14 +77,15 @@ def generate_flight(kind: str, epochs: int, rng, window: int = 20):
             if kind == "spoof":
                 # 은밀한 점진 표류: 개시 직후엔 정상과 거의 구분 안 됨(탐지 회피).
                 # ramp로 서서히 정체가 드러나고 잔차가 확대 → 유의미한 탐지지연 발생.
-                ramp = min(1.0, k / 25.0)             # ~25초에 걸쳐 완전 발현
-                slope = 0.45                          # m/s 표류율
-                x[0] += ramp * rng.normal(3.5, 1.2)   # C/N0 서서히 상승
+                # 프로파일(p)로 표류 속도·강도를 바꿔 적응형/회피형 공격을 표현.
+                ramp = min(1.0, k / p["ramp"])        # p["ramp"]초에 걸쳐 완전 발현
+                slope = p["slope"]                    # m/s 표류율
+                x[0] += ramp * rng.normal(*p["cn0_bump"])   # C/N0 서서히 상승
                 x[1] = x[1] * (1 - ramp) + ramp * rng.normal(1.2, 0.35)  # 산포 서서히 균일화
-                x[2] -= ramp * rng.normal(0.13, 0.03)  # AGC 서서히 하강
+                x[2] -= ramp * rng.normal(*p["agc_drop"])   # AGC 서서히 하강
                 x[3] = 2.2 + slope * k + rng.normal(0, 1.0)   # 잔차 점진 확대
-                x[4] = x[4] * (1 - ramp) + ramp * rng.normal(1.4, 0.2)   # DOP 서서히 낮아짐
-                x[5] = rng.normal(1.2, 1.1) + 0.04 * k  # 클럭 바이어스 드리프트
+                x[4] = x[4] * (1 - ramp) + ramp * rng.normal(*p["dop_target"])  # DOP 서서히 낮아짐
+                x[5] = rng.normal(1.2, 1.1) + p["clock_rate"] * k  # 클럭 바이어스 드리프트
                 x[6] = rng.normal(11.3, 0.8)           # 위성 수 유지(스푸퍼 제공)
                 labels[t] = 1
             elif kind == "jam":
@@ -93,8 +120,13 @@ def make_windows(feat, labels, window: int, stride: int = 2):
     return Xs, ys
 
 
-def generate_dataset(cfg: dict, rng):
-    """학습용 데이터셋 생성. 반환: X(N,F,W) float32, y(N,), meta."""
+def generate_dataset(cfg: dict, rng, spoof_profiles=None):
+    """학습용 데이터셋 생성. 반환: X(N,F,W) float32, y(N,), meta.
+
+    spoof_profiles: None이면 기존과 100% 동일(trained 단일 프로파일, 난수스트림 보존).
+      리스트(예: ["trained","slow_creep","aggressive"])를 주면 스푸핑 비행마다
+      프로파일을 랜덤 혼합 → 적응형 공격까지 학습(hardening).
+    """
     epochs = cfg["gnss"]["epochs"]
     window = cfg["gnss"]["window"]
     n = cfg["gnss"]["n_flights"]
@@ -103,7 +135,10 @@ def generate_dataset(cfg: dict, rng):
     for _ in range(n):
         kind = KINDS[rng.integers(0, 3)]
         counts[kind] += 1
-        feat, labels, _ = generate_flight(kind, epochs, rng, window)
+        prof = None
+        if kind == "spoof" and spoof_profiles:
+            prof = spoof_profiles[int(rng.integers(0, len(spoof_profiles)))]
+        feat, labels, _ = generate_flight(kind, epochs, rng, window, profile=prof)
         xw, yw = make_windows(feat, labels, window)
         Xs.extend(xw)
         ys.extend(yw)
@@ -111,5 +146,6 @@ def generate_dataset(cfg: dict, rng):
     y = np.array(ys, dtype=np.int64)
     meta = {"n_flights": n, "epochs": epochs, "window": window,
             "flight_kinds": counts, "n_windows": int(len(y)),
-            "features": FEATURES, "classes": CLASS_NAMES}
+            "features": FEATURES, "classes": CLASS_NAMES,
+            "spoof_profiles": spoof_profiles or ["trained"]}
     return X, y, meta

@@ -31,10 +31,11 @@ def load():
     return {"model": m, "scaler": d["scaler"]}
 
 
-def attack(rng):
+def attack(rng, evasive=False):
     cfg = load_config()
     ep, w = cfg["gnss"]["epochs"], cfg["gnss"]["window"]
-    feat, labels, onset = generate_flight("spoof", ep, rng, w)
+    profile = "slow_creep" if evasive else None
+    feat, labels, onset = generate_flight("spoof", ep, rng, w, profile=profile)
     return {"kind": "spoof", "feat": feat, "onset": onset, "window": w}
 
 
@@ -50,13 +51,19 @@ def detect(bundle, atk):
     cls = pred[hit[0]] if detected else 0
     threat = {0: "nominal", 1: "gnss_spoofing", 2: "gnss_jamming"}[int(cls)]
     row = feat[det_epoch]
-    _, reasons = gnss_rule(row)
+    # 최근 잔차 상승 추세 → 회피형(느린) 스푸핑도 설명가능 규칙으로 포착
+    lo = max(0, det_epoch - w)
+    res_series = feat[lo:det_epoch + 1, 3]
+    trend = (float(np.polyfit(np.arange(len(res_series)), res_series, 1)[0])
+             if len(res_series) >= 3 else None)
+    _, reasons = gnss_rule(row, residual_trend=trend)
     evidence = {"C/N0(dB-Hz)": round(float(row[0]), 1),
                 "INS 잔차(m)": round(float(row[3]), 1),
                 "AGC": round(float(row[2]), 2),
                 "DOP": round(float(row[4]), 2),
                 "위성수": int(row[6])}
+    conf = float(aprob[hit[0]]) if detected else float(aprob.max())
     return {"threat": threat, "detected": detected,
-            "score": round(float(aprob[hit[0]]) if detected else float(aprob.max()), 3),
+            "score": round(conf, 3), "confidence": round(conf, 3),
             "latency": latency, "latency_unit": "초", "det_epoch": det_epoch, "onset": onset,
             "evidence": evidence, "reasons": reasons, "detector": "1D-CNN(다특징 시계열)"}

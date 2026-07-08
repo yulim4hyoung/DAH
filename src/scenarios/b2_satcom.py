@@ -33,7 +33,8 @@ def load():
     return {"model": m, "scaler": d["scaler"], "threshold": d["threshold"]}
 
 
-def attack(rng):
+def attack(rng, evasive=False):
+    # evasive: 이 시나리오는 회피형 프로파일 미지원(하위호환용 인자, 무시).
     cfg = load_config()
     feat, labels, onset = generate_window("attack", cfg["satcom"]["bucket_len"], rng)
     return {"feat": feat, "onset": onset}
@@ -53,7 +54,10 @@ def detect(bundle, atk):
     evidence = {"펌웨어푸시": int(row[2]), "대상모뎀": int(row[3]),
                 "인증실패": int(row[4]), "모뎀오프라인": int(row[6]),
                 "재구성오차": round(float(err[det_b]), 3), "임계": round(float(thr), 3)}
+    ratio = float(err[det_b] / (thr + 1e-9))
+    # 신뢰도: 재구성오차가 임계의 2배면 1.0(=확신). 임계 부근이면 0.5.
+    conf = max(0.0, min(1.0, ratio / 2.0))
     return {"threat": "satcom_wiper" if detected else "nominal", "detected": detected,
-            "score": round(float(err[det_b] / (thr + 1e-9)), 2), "latency": latency,
+            "score": round(ratio, 2), "confidence": round(conf, 3), "latency": latency,
             "latency_unit": "버킷(분)", "det_epoch": det_b, "onset": onset,
             "evidence": evidence, "reasons": reasons, "detector": "오토인코더(비지도 이상탐지)"}
