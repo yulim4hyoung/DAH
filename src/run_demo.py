@@ -24,6 +24,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--scenario", default="all")
     ap.add_argument("--docs-dir", default=None)
+    ap.add_argument("--evasive", action="store_true",
+                    help="지원 시나리오(A2)에 회피형 공격 프로파일 사용 — "
+                         "규칙 불발/경계신뢰도로 LLM 2차 소견 시연")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -41,7 +44,7 @@ def main():
         console.print(console.export_text())
         return
 
-    orch = Orchestrator(cfg, console)
+    orch = Orchestrator(cfg, console, evasive=args.evasive)
     results, reports = orch.run(keys)
 
     # 산출물 저장(demo)

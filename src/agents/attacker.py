@@ -7,9 +7,12 @@ from .. import tools
 
 
 class AttackerAgent:
-    def run(self, scn, rng):
-        """시나리오의 공격을 시뮬레이션하고 킬체인·산출 샘플을 반환."""
-        atk = tools.simulate_attack_tool(scn.KEY, rng)
+    def run(self, scn, rng, evasive=False):
+        """시나리오의 공격을 시뮬레이션하고 킬체인·산출 샘플을 반환.
+
+        evasive=True면 지원 시나리오(현재 A2)가 회피형(느린 표류) 공격 프로파일을 쓴다.
+        """
+        atk = tools.simulate_attack_tool(scn.KEY, rng, evasive)
         return atk
 
     def killchain(self, scn):
