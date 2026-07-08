@@ -25,11 +25,12 @@ DET = {"a2_gnss": "1D-CNN · 다특징 시계열", "b2_satcom": "오토인코더
 DATA = {"a2_gnss": "합성", "b2_satcom": "합성", "b3_can": "합성(실 Car-Hacking 로더 포함)"}
 CHARTS = {
     "a2_gnss": [("roc_attack.png", "공격탐지 ROC"), ("confusion_matrix.png", "혼동행렬"),
-                ("detection_latency.png", "탐지지연 분포"), ("timeseries_example.png", "점진 표류 vs 탐지시점")],
+                ("detection_latency.png", "탐지지연 분포"), ("timeseries_example.png", "점진 표류 vs 탐지시점"),
+                ("sla_tradeoff.png", "SLA 트레이드오프"), ("adaptive_robustness.png", "적응형 공격 강건성")],
     "b2_satcom": [("roc.png", "이상탐지 ROC"), ("recon_error_hist.png", "재구성오차 분포"),
-                  ("timeline_example.png", "AcidRain형 전개 vs 탐지")],
+                  ("timeline_example.png", "AcidRain형 전개 vs 탐지"), ("sla_tradeoff.png", "SLA 트레이드오프")],
     "b3_can": [("confusion_matrix.png", "혼동행렬"), ("per_class_f1.png", "클래스별 F1"),
-               ("roc_attack.png", "공격탐지 ROC")],
+               ("roc_attack.png", "공격탐지 ROC"), ("sla_tradeoff.png", "SLA 트레이드오프")],
 }
 LAYER_TONE = {"a2_gnss": "pnt", "b2_satcom": "sat", "b3_can": "bus"}
 

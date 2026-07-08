@@ -25,6 +25,7 @@ from sklearn.metrics import (accuracy_score, precision_recall_fscore_support,
 from src.paths import load_config, models_dir, resolve_docs_dir
 from src.io_utils import (new_console, set_seed, save_fig, save_json,
                           save_metrics_md, save_console_log, md_table)
+from src import mapping
 
 
 # ----------------------------- 공통 그림 헬퍼 -----------------------------
@@ -50,6 +51,59 @@ def plot_roc(fpr, tpr, roc_auc, title):
     ax.set_xlabel("False Positive Rate"); ax.set_ylabel("True Positive Rate")
     ax.set_title(title); ax.legend(loc="lower right")
     return fig
+
+
+# ---------------------- SLA(가용성) 트레이드오프 헬퍼 ----------------------
+def sla_sweep(conf_all, y_all, high_conf, thresholds):
+    """탐지 임계별 (임계, TPR, 경보율, 서비스방해_일괄차단, 서비스방해_신뢰도게이팅).
+
+    서비스방해율 = 방어자가 '가용성을 깎는 대응'을 하는 평균 강도(0~1)를 운영 트래픽에서 측정.
+      일괄차단 정책 : 경보가 뜨면 무조건 강제 차단 → 경보율 × w_aggr(=1.0)
+      게이팅 정책   : 신뢰도<high 경보는 서비스 유지형 완화(w_graceful=0.2), 이상은 차단(w_aggr)
+    즉 SLA(가용성) 관점에서 '탐지는 유지하되 서비스 중단은 줄이는' 게이팅의 이득을 보인다.
+    (정탐이라도 강제 차단은 가용성을 깎으므로 경보 전체를 방해 대상으로 본다.)
+    """
+    conf = np.asarray(conf_all, dtype=float)
+    y = np.asarray(y_all)
+    pos = conf[y == 1]
+    w_g = mapping.DISRUPTION_WEIGHT["graceful"]
+    w_a = mapping.DISRUPTION_WEIGHT["aggressive"]
+    rows = []
+    for t in thresholds:
+        tpr = float((pos >= t).mean()) if len(pos) else 0.0
+        alarm = conf >= t
+        rate = float(alarm.mean())
+        hi = conf >= high_conf
+        dis_aggr = rate * w_a
+        dis_gate = float((alarm & hi).mean() * w_a + (alarm & ~hi).mean() * w_g)
+        rows.append((float(t), tpr, rate, dis_aggr, dis_gate))
+    return rows
+
+
+def plot_sla_tradeoff(rows, high_conf, title):
+    ts = [r[0] for r in rows]
+    tpr = [r[1] for r in rows]; da = [r[3] for r in rows]; dg = [r[4] for r in rows]
+    fig, ax = plt.subplots(figsize=(5.8, 3.9))
+    ax.plot(ts, tpr, color="tab:blue", lw=2, marker="o", ms=3, label="공격 탐지율(TPR·유지)")
+    ax.plot(ts, da, color="tab:red", lw=2, marker="s", ms=3, label="서비스 방해율(강제차단 일괄)")
+    ax.plot(ts, dg, color="tab:green", lw=2, marker="^", ms=3, label="서비스 방해율(신뢰도 게이팅)")
+    ax.fill_between(ts, dg, da, color="tab:green", alpha=0.12)
+    ax.axvline(high_conf, color="gray", ls=":", lw=1)
+    ax.text(high_conf, 1.02, f" high={high_conf}", color="gray", fontsize=8, va="top")
+    ax.set_xlabel("탐지 임계 (confidence)"); ax.set_ylabel("비율 (0~1)")
+    ax.set_title(title); ax.legend(fontsize=8, loc="center right")
+    ax.set_ylim(-0.02, 1.08)
+    return fig
+
+
+def sla_table(rows, picks=(0.5, 0.7, 0.9)):
+    """대표 임계 몇 개로 SLA 트레이드오프 md 표 생성."""
+    body = []
+    for p in picks:
+        r = min(rows, key=lambda x: abs(x[0] - p))
+        body.append([f"{r[0]:.2f}", f"{r[1]:.3f}", f"{r[2]:.3f}",
+                     f"{r[3]:.3f}", f"{r[4]:.3f}"])
+    return md_table(["임계", "공격탐지율", "경보율", "서비스방해(일괄차단)", "서비스방해(게이팅)"], body)
 
 
 # ----------------------------- A2: GNSS -----------------------------
@@ -93,6 +147,10 @@ def train_gnss(cfg, docs_dir, console):
     fp = int(((pred_bin == 1) & (y_bin == 0)).sum()); tn = int(((pred_bin == 0) & (y_bin == 0)).sum())
     tpr05 = tp / (tp + fn + 1e-9); fpr05 = fp / (fp + tn + 1e-9)
 
+    # ---- SLA 트레이드오프(신뢰도 게이팅 vs 일괄차단) ----
+    sla_thr = np.linspace(0.3, 0.95, 14)
+    sla_rows = sla_sweep(attack_score, y_bin, mapping.HIGH_CONFIDENCE, sla_thr)
+
     # ---- 탐지지연(점진 표류 조기탐지) ----
     W = cfg["gnss"]["window"]; ep = cfg["gnss"]["epochs"]
     lat = {"spoof": [], "jam": []}
@@ -125,6 +183,8 @@ def train_gnss(cfg, docs_dir, console):
     ax.set_xlabel("탐지지연 (초, 공격개시→첫 경보)"); ax.set_ylabel("빈도")
     ax.set_title("GNSS 스푸핑/재밍 탐지지연 분포"); ax.legend()
     save_fig(fig, key, "detection_latency.png", docs_dir)
+    save_fig(plot_sla_tradeoff(sla_rows, mapping.HIGH_CONFIDENCE,
+             "GNSS SLA 트레이드오프 (탐지율 vs 서비스방해)"), key, "sla_tradeoff.png", docs_dir)
     # 시계열 예시(스푸핑 점진 표류)
     if example:
         feat, labels, onset, eidx, aprob = example
@@ -160,16 +220,23 @@ def train_gnss(cfg, docs_dir, console):
     save_metrics_md(key, "A2 · GNSS 스푸핑/재밍 탐지 — 지표", [
         ("요약", summary),
         ("클래스별 성능", perclass),
+        ("SLA 트레이드오프(가용성)", sla_table(sla_rows) + "\n\n"
+         "> 신뢰도 게이팅: 신뢰도<0.7 경보는 서비스 유지형 완화(방해 0.2), 이상은 강제 차단(방해 1.0).\n"
+         "> 단, 본 DNN은 확신이 포화(경보 대부분 신뢰도≥0.9)라 게이팅 발동이 드물어 이 데이터에선 "
+         "게이팅과 일괄차단의 격차가 작다 — 게이팅의 이득은 탐지가 불확실한 실환경/저품질 신호에서 커진다."),
         ("그림", "- `confusion_matrix.png` 혼동행렬\n- `roc_attack.png` 공격탐지 ROC\n"
-                 "- `detection_latency.png` 탐지지연 분포\n- `timeseries_example.png` 점진 표류 vs 탐지시점"),
+                 "- `detection_latency.png` 탐지지연 분포\n- `timeseries_example.png` 점진 표류 vs 탐지시점\n"
+                 "- `sla_tradeoff.png` SLA 트레이드오프(탐지율 vs 서비스방해)"),
         ("비고", f"모델 1D-CNN · 특징 {FEATURES} · 윈도 {W}s · 합성데이터(시드 {cfg['seed']}).\n"
                  "TEXBAT/OAKBAT 실데이터 연동은 향후과제."),
     ], docs_dir)
 
+    sla05 = min(sla_rows, key=lambda x: abs(x[0] - 0.5))
     meta.update({"test_accuracy": acc, "auc_attack": float(roc_auc),
                  "tpr@0.5": tpr05, "fpr@0.5": fpr05,
                  "median_latency_spoof_s": med_spoof, "median_latency_jam_s": med_jam,
                  "per_class_f1": {CLASS_NAMES[i]: float(f1[i]) for i in range(3)},
+                 "sla_cost_aggressive@0.5": sla05[3], "sla_cost_gated@0.5": sla05[4],
                  "hyperparams": cfg["gnss"]["cnn"], "seed": cfg["seed"]})
     save_json(key, "run_meta.json", meta, docs_dir)
 
@@ -208,6 +275,11 @@ def train_satcom(cfg, docs_dir, console):
     fp = int(((pred == 1) & (yte == 0)).sum()); tn = int(((pred == 0) & (yte == 0)).sum())
     tpr_thr = tp / (tp + fn + 1e-9); fpr_thr = fp / (fp + tn + 1e-9)
 
+    # ---- SLA 트레이드오프 ----
+    conf_all = np.clip(err / (2 * thr + 1e-9), 0, 1)  # 임계 2배 오차=신뢰도 1.0
+    sla_thr = np.linspace(0.3, 0.95, 14)
+    sla_rows = sla_sweep(conf_all, yte, mapping.HIGH_CONFIDENCE, sla_thr)
+
     # ---- 탐지지연(대량 배포 조기차단) ----
     lat = []
     example = None
@@ -236,6 +308,8 @@ def train_satcom(cfg, docs_dir, console):
     save_fig(fig, key, "recon_error_hist.png", docs_dir)
 
     save_fig(plot_roc(fpr, tpr, roc_auc, "SATCOM 이상탐지 ROC"), key, "roc.png", docs_dir)
+    save_fig(plot_sla_tradeoff(sla_rows, mapping.HIGH_CONFIDENCE,
+             "SATCOM SLA 트레이드오프 (탐지율 vs 서비스방해)"), key, "sla_tradeoff.png", docs_dir)
 
     if example:
         feat, labels, onset, e = example
@@ -266,15 +340,20 @@ def train_satcom(cfg, docs_dir, console):
     ])
     save_metrics_md(key, "B2 · SATCOM 관리망 이상탐지 — 지표", [
         ("요약", summary),
+        ("SLA 트레이드오프(가용성)", sla_table(sla_rows) + "\n\n"
+         "> 신뢰도 게이팅(신뢰도<0.7 완화)이 관리망 오차단으로 인한 BLOS 링크 중단을 낮춘다."),
         ("그림", "- `recon_error_hist.png` 정상 vs 공격 재구성오차 분포+임계\n"
-                 "- `roc.png` 이상탐지 ROC\n- `timeline_example.png` AcidRain형 전개 vs 탐지시점"),
+                 "- `roc.png` 이상탐지 ROC\n- `timeline_example.png` AcidRain형 전개 vs 탐지시점\n"
+                 "- `sla_tradeoff.png` SLA 트레이드오프"),
         ("비고", f"비지도 오토인코더(정상만 학습) · 특징 {FEATURES}.\n"
                  f"임계=정상 재구성오차 {cfg['satcom']['ae']['threshold_pct']}%tile. 합성데이터(시드 {cfg['seed']})."),
     ], docs_dir)
 
+    sla05 = min(sla_rows, key=lambda x: abs(x[0] - 0.5))
     meta.update({"auc": float(roc_auc), "precision": float(p), "recall": float(r),
                  "f1": float(f1), "fpr@thr": fpr_thr, "threshold": thr,
                  "median_latency_buckets": med_lat, "detection_rate": det_rate,
+                 "sla_cost_aggressive@0.5": sla05[3], "sla_cost_gated@0.5": sla05[4],
                  "hyperparams": cfg["satcom"]["ae"], "seed": cfg["seed"]})
     save_json(key, "run_meta.json", meta, docs_dir)
 
@@ -316,6 +395,10 @@ def train_can(cfg, docs_dir, console):
     fpr, tpr, _ = roc_curve(y_bin, attack_score); roc_auc = auc(fpr, tpr)
     console.print(f"정확도 {acc:.3f} · macro-F1 {macro_f1:.3f} · 공격탐지 AUC {roc_auc:.3f}")
 
+    # ---- SLA 트레이드오프 ----
+    sla_thr = np.linspace(0.3, 0.95, 14)
+    sla_rows = sla_sweep(attack_score, y_bin, mapping.HIGH_CONFIDENCE, sla_thr)
+
     # ---- 그림 ----
     save_fig(plot_confusion(cm, CLASS_NAMES, "CAN 침입탐지 혼동행렬"), key,
              "confusion_matrix.png", docs_dir)
@@ -327,6 +410,8 @@ def train_can(cfg, docs_dir, console):
     save_fig(fig, key, "per_class_f1.png", docs_dir)
     save_fig(plot_roc(fpr, tpr, roc_auc, "CAN 공격 탐지 ROC (공격 vs 정상)"), key,
              "roc_attack.png", docs_dir)
+    save_fig(plot_sla_tradeoff(sla_rows, mapping.HIGH_CONFIDENCE,
+             "CAN SLA 트레이드오프 (탐지율 vs 서비스방해)"), key, "sla_tradeoff.png", docs_dir)
 
     # ---- metrics.md ----
     perclass = md_table(["클래스", "Precision", "Recall", "F1"],
@@ -339,16 +424,20 @@ def train_can(cfg, docs_dir, console):
     save_metrics_md(key, "B3 · CAN 침입탐지 — 지표", [
         ("요약", summary),
         ("클래스별 성능", perclass),
+        ("SLA 트레이드오프(가용성)", sla_table(sla_rows) + "\n\n"
+         "> 신뢰도 게이팅(신뢰도<0.7 완화)이 오탐으로 인한 차량 정지(구동계 차단)를 낮춘다."),
         ("그림", "- `confusion_matrix.png` 4클래스 혼동행렬\n- `per_class_f1.png` 클래스별 F1\n"
-                 "- `roc_attack.png` 공격탐지 ROC"),
+                 "- `roc_attack.png` 공격탐지 ROC\n- `sla_tradeoff.png` SLA 트레이드오프"),
         ("비고", f"경량 MLP · 윈도 특징 {FEATURES}.\n데이터: {source} "
                  f"(실 Car-Hacking CSV를 data/can/ 에 두면 자동 사용, 없으면 동형 합성)."),
     ], docs_dir)
 
+    sla05 = min(sla_rows, key=lambda x: abs(x[0] - 0.5))
     meta = {"source": source, "n_windows": int(len(y)),
             "class_counts": np.bincount(y).tolist(), "test_accuracy": acc,
             "macro_f1": macro_f1, "auc_attack": float(roc_auc),
             "per_class_f1": {CLASS_NAMES[i]: float(f1[i]) for i in range(4)},
+            "sla_cost_aggressive@0.5": sla05[3], "sla_cost_gated@0.5": sla05[4],
             "features": FEATURES, "hyperparams": cfg["can"]["mlp"], "seed": cfg["seed"]}
     save_json(key, "run_meta.json", meta, docs_dir)
 
@@ -359,6 +448,30 @@ def train_can(cfg, docs_dir, console):
     return {"scenario": key, "accuracy": acc, "macro_f1": macro_f1, "source": source}
 
 
+def train_gnss_hardened(cfg, console):
+    """적응형 공격 프로파일(회피형 slow_creep 포함)을 혼합해 hardened 모델을 추가 학습.
+
+    기본 a2_gnss.pt(baseline)는 건드리지 않고 a2_gnss_hardened.pt로 별도 저장.
+    eval_adaptive.py가 baseline vs hardened를 비교하는 데 쓴다.
+    """
+    from src.sim.gnss_sim import generate_dataset
+    from src.detect import gnss_cnn as M
+
+    console.rule("[bold cyan]A2-hardened · 적응형 프로파일 혼합 재학습")
+    rng = np.random.default_rng(cfg["seed"] + 777)
+    profiles = ["trained", "slow_creep", "aggressive"]
+    X, y, meta = generate_dataset(cfg, rng, spoof_profiles=profiles)
+    idx = rng.permutation(len(y))
+    n1, n2 = int(0.7 * len(y)), int(0.85 * len(y))
+    tr, va = idx[:n1], idx[n1:n2]
+    model, scaler, hist = M.train_model(X[tr], y[tr], X[va], y[va], cfg)
+    torch.save({"state_dict": model.state_dict(), "scaler": scaler,
+                "channels": cfg["gnss"]["cnn"]["channels"], "profiles": profiles},
+               os.path.join(models_dir(cfg), "a2_gnss_hardened.pt"))
+    console.print(f"[green]A2-hardened 저장[/] · 검증 정확도 {hist[-1]['val_acc']:.3f} "
+                  f"· 혼합 프로파일 {profiles}")
+
+
 DISPATCH = {"a2_gnss": train_gnss, "b2_satcom": train_satcom, "b3_can": train_can}
 
 
@@ -367,6 +480,8 @@ def main():
     ap.add_argument("--scenario", default="all",
                     choices=["a2_gnss", "b2_satcom", "b3_can", "all"])
     ap.add_argument("--docs-dir", default=None, help="보고서 근거자료 저장 폴더(dev_docu)")
+    ap.add_argument("--adaptive-train", action="store_true",
+                    help="적응형 프로파일 혼합 hardened GNSS 모델 추가 학습(a2_gnss_hardened.pt)")
     args = ap.parse_args()
 
     cfg = load_config()
@@ -381,6 +496,8 @@ def main():
             results.append(DISPATCH[k](cfg, docs_dir, console))
         except NotImplementedError:
             console.print(f"[yellow]{k}: 아직 미구현(스킵)")
+    if args.adaptive_train and "a2_gnss" in keys:
+        train_gnss_hardened(cfg, console)
     console.rule("[bold]학습 요약")
     for rslt in results:
         console.print(rslt)
