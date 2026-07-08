@@ -16,6 +16,8 @@
     "퍼지": 1.0,
     "스푸핑": 1.0
   },
+  "sla_cost_aggressive@0.5": 0.7476190476190476,
+  "sla_cost_gated@0.5": 0.7472380952380953,
   "features": [
     "mean_iat",
     "std_iat",
