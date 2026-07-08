@@ -1,0 +1,19 @@
+# 비밀·환경
+.env
+config.local.yaml
+
+# 파이썬
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# 산출물(재생성 가능) — 단, results/figures 일부는 보고서용으로 선택 커밋 가능
+data/
+models/
+results/logs/
+*.pt
+
+# OS
+Thumbs.db
+.DS_Store

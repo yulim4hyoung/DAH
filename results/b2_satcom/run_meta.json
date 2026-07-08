@@ -1,0 +1,35 @@
+{
+  "n_normal": 500,
+  "n_attack": 150,
+  "buckets_per_window": 60,
+  "n_train_normal_buckets": 24000,
+  "n_test_buckets": 15000,
+  "test_attack_ratio": 0.3254,
+  "features": [
+    "cmd_rate",
+    "cmd_type_entropy",
+    "fw_push",
+    "distinct_modems",
+    "auth_fail",
+    "config_change",
+    "modems_offline",
+    "offhours"
+  ],
+  "auc": 0.9840494711984948,
+  "precision": 0.976798637718178,
+  "recall": 0.9401761934029912,
+  "f1": 0.9581375926505898,
+  "fpr@thr": 0.010771815396777273,
+  "threshold": 0.10578742623329163,
+  "median_latency_buckets": 2.0,
+  "detection_rate": 1.0,
+  "hyperparams": {
+    "hidden": 32,
+    "bottleneck": 6,
+    "epochs": 50,
+    "lr": 0.001,
+    "batch": 64,
+    "threshold_pct": 99
+  },
+  "seed": 42
+}

@@ -1,0 +1,36 @@
+{
+  "source": "synthetic",
+  "n_windows": 14000,
+  "class_counts": [
+    3500,
+    3500,
+    3500,
+    3500
+  ],
+  "test_accuracy": 0.9990476190476191,
+  "macro_f1": 0.9990736896997725,
+  "auc_attack": 1.0,
+  "per_class_f1": {
+    "정상": 0.998109640831758,
+    "DoS": 0.9981851179673321,
+    "퍼지": 1.0,
+    "스푸핑": 1.0
+  },
+  "features": [
+    "mean_iat",
+    "std_iat",
+    "min_iat",
+    "n_unique_id",
+    "max_id_freq",
+    "id_entropy",
+    "known_id_ratio",
+    "mean_dlc"
+  ],
+  "hyperparams": {
+    "hidden": 64,
+    "epochs": 20,
+    "lr": 0.001,
+    "batch": 128
+  },
+  "seed": 42
+}

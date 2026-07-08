@@ -1,0 +1,34 @@
+# SENTINEL — 전역 설정
+# 시나리오·모델·에이전트 파라미터를 한 곳에서 관리한다.
+
+seed: 42
+
+paths:
+  results: results        # 코드 기본 출력(레포 내, 재현용)
+  models: models          # 학습된 가중치
+
+llm:
+  model: claude-haiku-4-5   # 기본 모델(옵션: claude-sonnet-5)
+  max_tokens: 1200
+  enabled: auto             # auto = ANTHROPIC_API_KEY 있으면 사용, 없으면 규칙 폴백
+
+# --- A2: GNSS 스푸핑 (⑦) ---
+gnss:
+  n_flights: 360            # 합성 비행 수(정상/스푸핑/재밍 혼합)
+  epochs: 120               # 비행당 에폭(1Hz 가정, 초)
+  window: 20               # 슬라이딩 윈도 길이(초)
+  cnn: {channels: 32, epochs: 25, lr: 0.001, batch: 64}
+
+# --- B2: SATCOM 관리망 이상탐지 (⑤) ---
+satcom:
+  n_normal: 500            # 정상 운영 구간 수(오토인코더 학습용)
+  n_attack: 150            # 공격 구간 수(평가용)
+  bucket_len: 60           # 시간 버킷당 이벤트 집계(분)
+  ae: {hidden: 32, bottleneck: 6, epochs: 50, lr: 0.001, batch: 64, threshold_pct: 99}
+
+# --- B3: CAN 침입탐지 (⑧) ---
+can:
+  use_real_if_present: true   # data/can/ 에 실데이터(CSV) 있으면 사용
+  n_windows_per_class: 3500   # 합성 폴백 시 클래스별 윈도 수
+  window_msgs: 40             # 윈도당 CAN 메시지 수
+  mlp: {hidden: 64, epochs: 20, lr: 0.001, batch: 128}

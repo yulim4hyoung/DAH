@@ -1,0 +1,43 @@
+{
+  "n_flights": 360,
+  "epochs": 120,
+  "window": 20,
+  "flight_kinds": {
+    "nominal": 110,
+    "spoof": 137,
+    "jam": 113
+  },
+  "n_windows": 18360,
+  "features": [
+    "cn0_mean",
+    "cn0_std",
+    "agc",
+    "ins_residual",
+    "dop",
+    "clock_jump",
+    "num_sats"
+  ],
+  "classes": [
+    "정상",
+    "스푸핑",
+    "재밍"
+  ],
+  "test_accuracy": 0.9789397240377633,
+  "auc_attack": 0.9921017237593324,
+  "tpr@0.5": 0.9501811594194292,
+  "fpr@0.5": 0.0018181818181807162,
+  "median_latency_spoof_s": 4.0,
+  "median_latency_jam_s": 0.0,
+  "per_class_f1": {
+    "정상": 0.9826968973747017,
+    "스푸핑": 0.9528985507246377,
+    "재밍": 0.9942965779467681
+  },
+  "hyperparams": {
+    "channels": 32,
+    "epochs": 25,
+    "lr": 0.001,
+    "batch": 64
+  },
+  "seed": 42
+}
