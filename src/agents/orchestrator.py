@@ -35,7 +35,7 @@ class Orchestrator:
 
     def run(self, scenario_keys):
         c = self.console
-        c.rule("[bold]SENTINEL — 공격→탐지→대응 오케스트레이션")
+        c.rule("[bold]결계(結界) — 공격→탐지→대응 오케스트레이션")
         c.print(f"🧠 방어 에이전트 구동: [bold]{self.llm.status}[/]  "
                 f"(DNN 탐지기는 항상 활성)")
         results = []

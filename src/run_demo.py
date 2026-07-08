@@ -1,4 +1,4 @@
-"""SENTINEL 데모 진입점 — 공격→탐지→대응 오케스트레이션을 실행.
+"""결계(結界) 데모 진입점 — 공격→탐지→대응 오케스트레이션을 실행.
 
 사용:
   python src/run_demo.py --scenario all --docs-dir "…/dev_docu"
@@ -52,7 +52,7 @@ def main():
              "탐지" if r["detected"] else "정상", r["score"],
              (f"{r['latency']}{r['latency_unit']}" if r["latency"] is not None else "-")]
             for r in results]
-    summary = ("# SENTINEL 오케스트레이션 요약\n\n"
+    summary = ("# 결계(結界) 오케스트레이션 요약\n\n"
                f"LLM 상태: {orch.llm.status}\n\n"
                + md_table(["시나리오", "계층", "위협", "탐지", "점수", "탐지지연"], rows)
                + "\n\n> 각 시나리오 상세는 `incident_<key>.md` 참조. "

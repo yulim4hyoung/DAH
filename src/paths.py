@@ -37,8 +37,8 @@ def data_dir() -> str:
 
 
 def resolve_docs_dir(cli_arg: str | None) -> str | None:
-    """--docs-dir 인자 > SENTINEL_DOCS_DIR 환경변수 > None(=results만)."""
-    d = cli_arg or os.environ.get("SENTINEL_DOCS_DIR") or None
+    """--docs-dir 인자 > GYEOLGYE_DOCS_DIR 환경변수 > None(=results만)."""
+    d = cli_arg or os.environ.get("GYEOLGYE_DOCS_DIR") or None
     if d:
         os.makedirs(d, exist_ok=True)
     return d

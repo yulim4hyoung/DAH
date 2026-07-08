@@ -1,4 +1,4 @@
-"""SENTINEL 아키텍처 다이어그램(PNG) 생성 — mermaid-cli 없이 matplotlib로.
+"""결계(結界) 아키텍처 다이어그램(PNG) 생성 — mermaid-cli 없이 matplotlib로.
 
 python src/make_diagram.py --docs-dir "…/dev_docu"  → 00_overview/architecture.png
 """
@@ -32,7 +32,7 @@ def _arrow(ax, x1, y1, x2, y2):
 def build():
     fig, ax = plt.subplots(figsize=(12.5, 6.2))
     ax.set_xlim(0, 13); ax.set_ylim(0, 7); ax.axis("off")
-    ax.text(6.5, 6.75, "SENTINEL — UAV/UGV 통신보안 멀티에이전트 방어 (DAH 2026)",
+    ax.text(6.5, 6.75, "결계(結界) — UAV/UGV 통신보안 멀티에이전트 방어 (DAH 2026)",
             ha="center", fontsize=14, fontweight="bold")
 
     _box(ax, 0.3, 3.6, 2.6, 2.4, "🔴 공격 에이전트",

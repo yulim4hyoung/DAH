@@ -1,4 +1,4 @@
-# SENTINEL 아키텍처
+# 결계(結界) 아키텍처
 
 ![architecture](architecture.png)
 

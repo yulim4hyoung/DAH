@@ -1,4 +1,4 @@
-# SENTINEL 의존성 (Python 3.12)
+# 결계(結界) 의존성 (Python 3.12)
 # PyTorch는 CPU 빌드로 충분(모델이 작아 수 분 내 학습). GPU 사용 시 아래 torch를
 #   pip install torch --index-url https://download.pytorch.org/whl/cu128
 # 로 교체(RTX 50xx=Blackwell은 cu128/nightly 필요할 수 있음).
