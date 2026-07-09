@@ -24,7 +24,7 @@ def _ts(step: int) -> str:
 
 
 class Orchestrator:
-    def __init__(self, cfg: dict, console):
+    def __init__(self, cfg: dict, console, evasive: bool = False):
         self.cfg = cfg
         self.console = console
         self.llm = LLMClient(cfg)
@@ -32,6 +32,7 @@ class Orchestrator:
         self.attacker = AttackerAgent()
         self.detector = DetectorAgent(self.llm)
         self.responder = ResponderAgent(self.llm)
+        self.evasive = evasive  # True면 지원 시나리오(A2)가 회피형 공격 프로파일 사용
 
     def run(self, scenario_keys):
         c = self.console
@@ -58,7 +59,7 @@ class Orchestrator:
             for s, act, tool in scn.KILLCHAIN:
                 kc.add_row(s, act, tool)
             c.print(kc)
-            atk = self.attacker.run(scn, rng)
+            atk = self.attacker.run(scn, rng, self.evasive)
 
             # 3) Detector — DNN 도구 호출
             alert, analysis = self.detector.run(scn, atk_load(scn), atk)
@@ -73,13 +74,20 @@ class Orchestrator:
                 c.print(f"        • {rsn}")
             c.print(Panel(analysis, title="🧠 위협 분석(에이전트)", border_style="cyan",
                           padding=(0, 1)))
+            if alert.get("second_opinion"):
+                c.print(Panel(alert["second_opinion"], title="🤖 LLM 2차 소견(자문)",
+                              border_style="yellow", padding=(0, 1)))
 
-            # 4) Responder — 플레이북
+            # 4) Responder — 플레이북 (SLA 인지: 신뢰도로 대응강도 선택)
             dec = self.responder.run(scn, alert)
             info, pb = dec["threat_info"], dec["playbook"]
+            tier_ko = {"graceful": "🟢 완화(서비스 유지)", "aggressive": "🔴 강제 차단",
+                       "none": "-"}.get(dec["tier"], "-")
+            conf_s = f"{dec['confidence']:.2f}" if dec.get("confidence") is not None else "-"
             c.print(f"{_ts(step)} 🔵 [bold]Responder[/] · 위협분류 → 플레이북 선택 "
                     f"(MITRE {', '.join(info['mitre']) or '-'} / "
                     f"SPARTA {', '.join(info['sparta']) or '-'})"); step += 1
+            c.print(f"        SLA 대응강도: {tier_ko} (탐지 신뢰도 {conf_s})")
             for phase in mapping.CSF_ORDER:
                 if pb.get(phase):
                     c.print(f"        [{mapping.CSF_LABEL[phase]}]")
@@ -128,12 +136,18 @@ def _incident_md(scn, alert, dec, analysis) -> str:
     def block(phase):
         return "\n".join(f"- {a}" for a in pb.get(phase, []))
     lat = (f"{alert['latency']}{alert['latency_unit']}" if alert.get("latency") is not None else "-")
+    tier_ko = {"graceful": "완화(서비스 유지·SLA 보호)", "aggressive": "강제 차단",
+               "none": "-"}.get(dec.get("tier"), "-")
+    conf_s = f"{dec['confidence']:.2f}" if dec.get("confidence") is not None else "-"
+    second_opinion_block = (f"\n## 🤖 LLM 2차 소견(자문)\n{alert['second_opinion']}\n"
+                            if alert.get("second_opinion") else "")
     return f"""# 사고보고 — {scn.TITLE}
 
 - **시나리오**: `{scn.KEY}` · 계층 {scn.LAYER}
 - **위협**: {info['name']} ({info['property']})
 - **프레임워크 매핑**: MITRE {', '.join(info['mitre']) or '-'} / SPARTA {', '.join(info['sparta']) or '-'}
 - **탐지기**: {alert['detector']} · 점수 {alert['score']} · 탐지지연 {lat}
+- **SLA 대응강도**: {tier_ko} (탐지 신뢰도 {conf_s})
 
 ## 증거
 | 지표 | 값 |
@@ -145,7 +159,7 @@ def _incident_md(scn, alert, dec, analysis) -> str:
 
 ## 위협 분석(에이전트)
 {analysis}
-
+{second_opinion_block}
 ## 대응 플레이북 (NIST CSF)
 ### 대응(Respond)
 {block('respond')}

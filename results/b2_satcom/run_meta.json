@@ -23,6 +23,8 @@
   "threshold": 0.10578742623329163,
   "median_latency_buckets": 2.0,
   "detection_rate": 1.0,
+  "sla_cost_aggressive@0.5": 0.3132,
+  "sla_cost_gated@0.5": 0.31106666666666666,
   "hyperparams": {
     "hidden": 32,
     "bottleneck": 6,

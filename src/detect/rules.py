@@ -7,8 +7,12 @@ from __future__ import annotations
 import numpy as np
 
 
-def gnss_rule(feat_row) -> tuple[bool, list[str]]:
-    """feat_row = [cn0_mean, cn0_std, agc, ins_residual, dop, clock_jump, num_sats]."""
+def gnss_rule(feat_row, residual_trend=None) -> tuple[bool, list[str]]:
+    """feat_row = [cn0_mean, cn0_std, agc, ins_residual, dop, clock_jump, num_sats].
+
+    residual_trend: (선택) 최근 INS 잔차의 상승 기울기(m/s). 주면 순간값이 임계 미만이어도
+      '완만한 누적 표류'(회피형 스푸핑)를 근거로 잡는다. None이면 기존 동작과 동일.
+    """
     cn0, cn0_std, agc, res, dop, clk, sats = feat_row
     r = []
     if res > 15:
@@ -19,6 +23,8 @@ def gnss_rule(feat_row) -> tuple[bool, list[str]]:
         r.append("C/N0 비정상 균일 + AGC 하강 — 스푸퍼 강신호 정황")
     if dop < 1.5:
         r.append(f"DOP {dop:.2f} 비정상적으로 낮음(위조 신호 정황)")
+    if residual_trend is not None and res <= 15 and residual_trend > 0.1:
+        r.append(f"INS 잔차 완만한 상승추세 {residual_trend:.2f} m/s — 은밀 누적 표류(회피형 스푸핑) 정황")
     return (len(r) > 0, r)
 
 

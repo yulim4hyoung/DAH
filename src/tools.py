@@ -11,9 +11,12 @@ def load_detector_tool(scenario_key):
     return registry.get(scenario_key).load()
 
 
-def simulate_attack_tool(scenario_key, rng):
-    """시나리오의 공격 시뮬레이션 실행 → 탐지기 입력 샘플 생성."""
-    return registry.get(scenario_key).attack(rng)
+def simulate_attack_tool(scenario_key, rng, evasive=False):
+    """시나리오의 공격 시뮬레이션 실행 → 탐지기 입력 샘플 생성.
+
+    evasive=True면 시나리오가 지원하는 경우(현재 A2) 회피형 공격 프로파일을 사용한다.
+    """
+    return registry.get(scenario_key).attack(rng, evasive=evasive)
 
 
 def run_detector_tool(scenario_key, bundle, atk):
